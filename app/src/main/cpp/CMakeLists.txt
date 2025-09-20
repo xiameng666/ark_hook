@@ -13,7 +13,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         native-lib.cpp
         art.cpp
-        Hook.cpp
+        IHook.cpp
+        ArgsConverter.cpp
         Trampline.S
 )
 

@@ -28,3 +28,12 @@ IHookCallback     ：Java使用的接口
 功能统一来自C层的Hook，且有 // Before: 修改参数 // After: 修改返回值
 
 需要把native-lib的逻辑拆解到各个类中并完善
+
+
+1.现在的native-lib中有很多参数转换的逻辑，如何封装到ArgsConverter类中？
+
+@Trampline.S 这个跳板只是将hook点跳转到汇编，保存现场后调callback，执行完后恢复现场。如果要实现after，
+我们需要在entry_point_from_quick_compiled_code_的结束ret的时候 进行Installhook，就可以修改返回值
+
+
+CallBack进入有转换 执行Before或After后有转换 Before和After内也有转换，这四个转换在做什么，是否能封装成四个函数

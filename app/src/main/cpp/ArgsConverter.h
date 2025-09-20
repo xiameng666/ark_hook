@@ -5,35 +5,38 @@
 #ifndef TEST_ARGSCONVERTER_H
 #define TEST_ARGSCONVERTER_H
 
-//java与native间需要参数和栈的转换
-class ArgsConverter {
+#include <jni.h>
+#include <string>
+#include "art.h"
 
-/* ============ 需要处理的参数转换类型(可能不完整 参考native-lib中已经实现的) ============
-
-// 1. 基本类型转换（装箱/拆箱）
-原始类型 → Java包装类 → 原始类型
-├── byte    ↔ Byte
-├── char    ↔ Character
-├── short   ↔ Short
-├── int     ↔ Integer
-├── long    ↔ Long
-├── float   ↔ Float
-├── double  ↔ Double
-└── boolean ↔ Boolean
-
-// 2. 引用类型转换
-├── Object* (ART) ↔ jobject (JNI)
-├── String (特殊处理)
-└── Array (需要递归处理)
-
-// 3. 寄存器/栈 → Java对象数组
-├── 整数参数：x2-x7寄存器 / 栈
-├── 浮点参数：v0-v7寄存器 / 栈
-└── 返回值：x0/v0寄存器
-*/
-
-
+// 参数提取函数
+struct MethodArgs {
+    jchar ch;
+    jfloat f;
+    jlong l;
+    jdouble d;
+    jstring str;
+    jbyte b;
+    jint n;
 };
 
+//java与native间需要参数和栈的转换
+class ArgsConverter {
+private:
+
+public:
+    static jobjectArray
+    artArgs2JArray(ArtMethod *method, Object *thiz, Thread *self, char *shorty,
+                   uint32_t *args, uint64_t *xregs, double *fregs);
+
+    static void
+    JArray2ARTArgs(jobjectArray javaArgs, char *shorty, uint32_t *args, uint64_t *xregs,
+                   double *fregs, Thread *self);
+
+    static MethodArgs parseArgsFromJArray(JNIEnv *env, jobjectArray args);
+
+    static void setArgs2JArray(JNIEnv *env, jobjectArray args, const MethodArgs &newArgs);
+
+};
 
 #endif //TEST_ARGSCONVERTER_H
