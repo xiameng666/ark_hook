@@ -19,52 +19,83 @@ extern "C"{
 
 bool IHook::InstallMethodHook(ArtMethod* method)
 {
+    LOGV("[TAG] 开始安装方法Hook");
+    
+    LOGV("[TAG] 获取方法入口点");
     void* methodEntry = method->ptr_sized_fields_.entry_point_from_quick_compiled_code_;
-    if (!InstallHook(methodEntry, (void*)BeforeCallBack)){
+    if (methodEntry == nullptr) {
+        LOGV("[TAG] 错误：方法入口点为空");
         return false;
     }
+    LOGV("[TAG] 方法入口点: %p", methodEntry);
 
+    LOGV("[TAG] 安装Before Hook");
+    if (!InstallHook(methodEntry, (void*)BeforeCallBack)){
+        LOGV("[TAG] 错误：Before Hook安装失败");
+        return false;
+    }
+    LOGV("[TAG] Before Hook安装成功");
+
+    LOGV("[TAG] 查找返回指令地址");
     //查找并安装After Hook
     void* retAddr = FindRetInst(methodEntry);
     if (retAddr) {
+        LOGV("[TAG] 找到返回指令地址: %p", retAddr);
+        LOGV("[TAG] 安装After Hook");
         if (!InstallHook(retAddr, (void*)AfterCallBack)) {
-            LOGV("After Hook安装失败 !InstallHook");
+            LOGV("[TAG] 错误：After Hook安装失败");
+        } else {
+            LOGV("[TAG] After Hook安装成功");
         }
     }else{
-        LOGV("After Hook安装失败 !retAddr");
+        LOGV("[TAG] 错误：找不到返回指令地址");
     }
 
+    LOGV("[TAG] 方法Hook安装完成");
     return true;
 }
 
 bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
 {
+    LOGV("[TAG] 开始安装Hook，目标地址: %p，回调地址: %p", pDestAddr, pfnCallback);
+
+    LOGV("[TAG] 修改目标函数内存属性");
     //0. 修改内存属性
     int nRet = mprotect(PAGE_BASE(pDestAddr), PAGE_SZIE, PROT_READ|PROT_WRITE|PROT_EXEC);
     if (nRet < 0)
     {
+        LOGV("[TAG] 错误：修改目标函数内存属性失败");
         perror("修改目标函数内存属性失败");
         return false;
     }
+    LOGV("[TAG] 目标函数内存属性修改成功");
 
+    LOGV("[TAG] 修改跳板内存属性");
     nRet = mprotect(PAGE_BASE(Saved_OldCode), PAGE_SZIE*2, PROT_READ|PROT_WRITE|PROT_EXEC);
     if (nRet < 0)
     {
+        LOGV("[TAG] 错误：修改跳板内存属性失败");
         perror("修改跳板内存属性失败");
         return false;
     }
+    LOGV("[TAG] 跳板内存属性修改成功");
     
+    LOGV("[TAG] 保存原函数指令");
     //1. 保存原函数指令
     memcpy((void*)Saved_OldCode, (void*)pDestAddr, SMALL_TRIMPLINE);
     auto pRetAddr = (char*)pDestAddr+SMALL_TRIMPLINE;
     memcpy((void*)RetDst_addr, (void*)&pRetAddr, sizeof(pDestAddr));
     memcpy((void*)g_pfnCallback, (void*)&pfnCallback, sizeof(pfnCallback));
+    LOGV("[TAG] 原函数指令保存完成");
 
+    LOGV("[TAG] 修改原函数头，跳转到跳板");
     //2. 修改原函数头，跳转到跳板
     memcpy((void*)pDestAddr, (void*)SmallTramplie, SMALL_TRIMPLINE);
     void* pTrimpline = (void*)Trimpline;
     memcpy((void*)((char*)pDestAddr+8), (void*)&pTrimpline, sizeof(pTrimpline));
+    LOGV("[TAG] 跳转指令设置完成");
 
+    LOGV("[TAG] Hook安装成功");
     return true;
 }
 
@@ -74,6 +105,8 @@ bool IHook::UninstallHook(void* pDestAddr, void* pfnNewDstAddr)
 }
 
 void* IHook::FindRetInst(void* pDestAddr) {
+    LOGV("[TAG] 开始查找返回指令，起始地址: %p", pDestAddr);
+    
     size_t next = 0;
 
     // RET指令的机器码（ARM64）
@@ -81,19 +114,26 @@ void* IHook::FindRetInst(void* pDestAddr) {
     const uint32_t RET_INSTRUCTION_2 = 0xC0035FD6;  // ret x30
 
     const size_t MAX_SCAN_SIZE = 4096;  // 4KB扫描范围
+    LOGV("[TAG] 最大扫描范围: %zu 字节", MAX_SCAN_SIZE);
 
     while (next < MAX_SCAN_SIZE) {
         // 获取当前4字节的机器码  会不会是小端序？
         uint32_t instruction = *(uint32_t*)((char*)pDestAddr + next);
+        
+        if (next % 16 == 0) {  // 每16字节打印一次进度
+            LOGV("[TAG] 扫描进度: %zu/%zu, 当前指令: 0x%08X", next, MAX_SCAN_SIZE, instruction);
+        }
 
         // 检查是否是RET指令
         if (instruction == RET_INSTRUCTION_1 || instruction == RET_INSTRUCTION_2) {
+            LOGV("[TAG] 找到返回指令，地址: %p, 偏移: %zu", (char*)pDestAddr + next, next);
             return (char*)pDestAddr + next;
         }
 
         next += 4;
     }
 
+    LOGV("[TAG] 错误：在扫描范围内未找到返回指令");
     return nullptr;
 }
 
@@ -106,16 +146,32 @@ void IHook::AfterCallBack(ArtMethod* method,
                            double * fregs)
 {
     std::string  name = method->PrettyMethod();
-    LOGV("AfterCallBack来了 %s", name.c_str());
+    LOGV("[TAG] AfterCallBack来了 %s", name.c_str());
 
+    LOGV("[TAG] 处理AfterCallBack参数");
     jobjectArray ja = nullptr;
+    
+    LOGV("[TAG] 添加弱全局引用");
     jobject othiz = env_->vm->AddWeakGlobalRef(self, thiz);
-    jobject retValue = ArgsConverter::parseReturnValue(env_, shorty[0], xregs, fregs, self);
+    if (othiz == nullptr) {
+        LOGV("[TAG] 错误：添加弱全局引用失败");
+        return;
+    }
 
+    LOGV("[TAG] 解析返回值");
+    jobject retValue = ArgsConverter::parseReturnValue(env_, shorty[0], xregs, fregs, self);
+    if (retValue == nullptr) {
+        LOGV("[TAG] 警告：返回值解析失败");
+    }
+
+    LOGV("[TAG] 调用用户重写的onAfterMethod");
     //用户重写
     jobject newValue = g_hookInstance->onAfterMethod(env_, method, othiz, retValue);
 
+    LOGV("[TAG] 写入新的返回值");
     ArgsConverter::WriteReturnValue(env_, shorty[0], newValue, xregs, fregs, self);
+    
+    LOGV("[TAG] AfterCallBack处理完成");
 }
 
 //Bridge
@@ -128,20 +184,35 @@ void IHook::BeforeCallBack(ArtMethod* method,
                      double * fregs)
 {
     std::string  name = method->PrettyMethod();
-    LOGV("BeforeCallBack来了 %s", name.c_str());
+    LOGV("[TAG] BeforeCallBack来了 %s", name.c_str());
 
+    LOGV("[TAG] 处理BeforeCallBack参数");
     jobjectArray ja = nullptr;
+    
+    LOGV("[TAG] 添加弱全局引用");
     jobject othiz = env_->vm->AddWeakGlobalRef(self, thiz);
+    if (othiz == nullptr) {
+        LOGV("[TAG] 错误：添加弱全局引用失败");
+        return;
+    }
 
+    LOGV("[TAG] ART参数转换为Java对象数组");
     //ART参数 → Java对象数组
     ja = ArgsConverter::artArgs2JArray(env_, method, thiz, self, shorty, args, xregs, fregs);
+    if (ja == nullptr) {
+        LOGV("[TAG] 错误：ART参数转换失败");
+        return;
+    }
 
+    LOGV("[TAG] 调用用户重写的onBeforeMethod");
     //用户重写
     g_hookInstance->onBeforeMethod(env_, method, othiz, ja);
 
+    LOGV("[TAG] Java对象数组转换为ART参数");
     //Java对象数组 → ART参数
     ArgsConverter::JArray2ARTArgs(env_, ja, shorty, args, xregs, fregs, self);
 
+    LOGV("[TAG] BeforeCallBack处理完成");
     return ;
 }
 
