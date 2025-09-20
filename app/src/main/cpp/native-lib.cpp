@@ -74,7 +74,7 @@ void Before(JNIEnv* env, jobject thiz, jobjectArray args)
     return;
 }
 
-//Bridgae
+//Bridge
 void CallBack(ArtMethod* method,
               Object* thiz,
               Thread* self,

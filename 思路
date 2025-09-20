@@ -1,0 +1,30 @@
+需求:
+a)	Hook指定方法
+i.	一般方法
+ii.	Native方法
+iii.	静态方法
+b)	提供jni层的通用回调接口
+c)	提供java层的通用回调接口
+d)	提供修改参数和返回值的功能
+e)	可以同时hook多个方法
+
+
+疑问：
+也就是说 核心hook都在C层实现，C层同时提供JNI的回调接口以及给Java的回调接口
+
+需要处理的参数转换有？:
+C层的HOOk类设计:需要哪些必须的方法
+修改参数和返回值的功能是Before和After都要？还是只需要Before
+
+C层：
+class art  :aosp的art类
+class ArgsConverter : java与C的参数处理/堆栈转换
+class Hook  :目前有安装hook的函数，不需要卸载功能，后需要支持多个hook
+
+
+接口：
+HookInterface.h   ：JNI使用的接口
+IHookCallback     ：Java使用的接口
+功能统一来自C层的Hook，且有 // Before: 修改参数 // After: 修改返回值
+
+需要把native-lib的逻辑拆解到各个类中并完善
