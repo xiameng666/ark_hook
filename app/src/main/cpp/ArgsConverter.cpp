@@ -6,7 +6,6 @@
 #include <android/log.h>
 #define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, "ArgsConverter", __VA_ARGS__)
 
-extern JNIEnvExt *g_env;
 #define GET_PRIM_TYPE_METHOD(type, jtype, short) \
 jclass cls_##type = g_env->FindClass("java/lang/"#jtype);\
 jmethodID meth_valueof_##type = g_env->GetStaticMethodID(cls_##type, "valueOf", "("#short")Ljava/lang/"#jtype";");\
@@ -18,8 +17,9 @@ jmethodID meth_##type##_value = g_env->GetMethodID(cls_##type, #type"Value", "()
 #define GET_ARG(args, index, ret, jtype)  g_env->Call##ret##Method(g_env->GetObjectArrayElement(args, index),  meth_##jtype##_value)
 
 // ART参数 → Java对象数组 (CallBack进入时)
-jobjectArray ArgsConverter::artArgs2JArray(ArtMethod* method, Object* thiz, Thread* self,
-                                           char* shorty, uint32_t* args, uint64_t* xregs, double* fregs) {
+jobjectArray
+ArgsConverter::artArgs2JArray(JNIEnvExt *g_env, ArtMethod *method, Object *thiz, Thread *self,
+                              char *shorty, uint32_t *args, uint64_t *xregs, double *fregs) {
     LOGV("转换1: ART参数 → Java对象数组");
     GET_SETPRIM_TYPE_METHOD(byte, Byte, B);
     GET_SETPRIM_TYPE_METHOD(char, Character, C);
@@ -168,10 +168,11 @@ jobjectArray ArgsConverter::artArgs2JArray(ArtMethod* method, Object* thiz, Thre
 }
 
 // Java对象数组 → ART参数 (CallBack执行Before/After后)
-void ArgsConverter::JArray2ARTArgs(jobjectArray javaArgs, char* shorty, uint32_t* args,
-                                   uint64_t* xregs, double* fregs, Thread* self) {
+void
+ArgsConverter::JArray2ARTArgs(JNIEnvExt *g_env, jobjectArray javaArgs, char *shorty, uint32_t *args,
+                              uint64_t *xregs, double *fregs, Thread *self) {
     LOGV("转换4: Java对象数组 → ART参数");
-    
+
     // 初始化JNI方法ID
     GET_SETPRIM_TYPE_METHOD(byte, Byte, B);
     GET_SETPRIM_TYPE_METHOD(char, Character, C);
@@ -332,6 +333,7 @@ void ArgsConverter::JArray2ARTArgs(jobjectArray javaArgs, char* shorty, uint32_t
     }
 }
 
+/*
 // Java对象数组 → 原始值 (Before/After内部使用)
 MethodArgs ArgsConverter::parseArgsFromJArray(JNIEnv* env, jobjectArray args) {
     LOGV("转换2: Java对象数组 → 原始值");
@@ -398,4 +400,175 @@ void ArgsConverter::setArgs2JArray(JNIEnv* env, jobjectArray args, const MethodA
     env->SetObjectArrayElement(args, 4, o_s);
     env->SetObjectArrayElement(args, 5, o_b);
     env->SetObjectArrayElement(args, 6, o_n);
+}
+*/
+
+// IHook.cpp
+jobject
+ArgsConverter::parseReturnValue(JNIEnvExt *g_env, char returnType, uint64_t *xregs, double *fregs,
+                                Thread *self) {
+    switch(returnType) {
+        case 'V':  // void
+            return nullptr;
+
+        case 'Z': { // boolean
+            jclass cls = g_env->FindClass("java/lang/Boolean");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(Z)Ljava/lang/Boolean;");
+            jboolean value = (jboolean)(xregs[0] & 0xFF);  // 取低8位
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'B': { // byte
+            jclass cls = g_env->FindClass("java/lang/Byte");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(B)Ljava/lang/Byte;");
+            jbyte value = (jbyte)(xregs[0] & 0xFF);
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'C': { // char
+            jclass cls = g_env->FindClass("java/lang/Character");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(C)Ljava/lang/Character;");
+            jchar value = (jchar)(xregs[0] & 0xFFFF);  // 取低16位
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'S': { // short
+            jclass cls = g_env->FindClass("java/lang/Short");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(S)Ljava/lang/Short;");
+            jshort value = (jshort)(xregs[0] & 0xFFFF);
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'I': { // int
+            jclass cls = g_env->FindClass("java/lang/Integer");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(I)Ljava/lang/Integer;");
+            jint value = (jint)xregs[0];  // ARM64: w0寄存器（x0的低32位）
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'J': { // long
+            jclass cls = g_env->FindClass("java/lang/Long");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(J)Ljava/lang/Long;");
+            jlong value = (jlong)xregs[0];  // ARM64: x0寄存器
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'F': { // float
+            jclass cls = g_env->FindClass("java/lang/Float");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(F)Ljava/lang/Float;");
+            jfloat value = *(jfloat*)fregs;  // ARM64: s0寄存器（d0的低32位）
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'D': { // double
+            jclass cls = g_env->FindClass("java/lang/Double");
+            jmethodID valueOf = g_env->GetStaticMethodID(cls, "valueOf", "(D)Ljava/lang/Double;");
+            jdouble value = *(jdouble*)fregs;  // ARM64: d0寄存器
+            return g_env->CallStaticObjectMethod(cls, valueOf, value);
+        }
+
+        case 'L':  // 对象引用
+        case '[': { // 数组引用
+            Object* obj = (Object*)xregs[0];
+            if (obj == nullptr) {
+                return nullptr;
+            }
+            // 转换为弱引用
+            return g_env->vm->AddWeakGlobalRef(self, obj);
+        }
+
+        default:
+            LOGV("未知的返回类型: %c", returnType);
+            return nullptr;
+    }
+}
+
+void
+ArgsConverter::WriteReturnValue(JNIEnvExt *g_env, char returnType, jobject value, uint64_t *xregs,
+                                double *fregs, Thread *self) {
+    if (returnType == 'V') return;  // void类型不需要处理
+
+    switch(returnType) {
+        case 'Z': { // boolean
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Boolean");
+                jmethodID boolValue = g_env->GetMethodID(cls, "booleanValue", "()Z");
+                xregs[0] = g_env->CallBooleanMethod(value, boolValue);
+            }
+            break;
+        }
+
+        case 'B': { // byte
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Byte");
+                jmethodID byteValue = g_env->GetMethodID(cls, "byteValue", "()B");
+                xregs[0] = g_env->CallByteMethod(value, byteValue);
+            }
+            break;
+        }
+
+        case 'C': { // char
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Character");
+                jmethodID charValue = g_env->GetMethodID(cls, "charValue", "()C");
+                xregs[0] = g_env->CallCharMethod(value, charValue);
+            }
+            break;
+        }
+
+        case 'S': { // short
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Short");
+                jmethodID shortValue = g_env->GetMethodID(cls, "shortValue", "()S");
+                xregs[0] = g_env->CallShortMethod(value, shortValue);
+            }
+            break;
+        }
+
+        case 'I': { // int
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Integer");
+                jmethodID intValue = g_env->GetMethodID(cls, "intValue", "()I");
+                xregs[0] = g_env->CallIntMethod(value, intValue);
+            }
+            break;
+        }
+
+        case 'J': { // long
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Long");
+                jmethodID longValue = g_env->GetMethodID(cls, "longValue", "()J");
+                xregs[0] = g_env->CallLongMethod(value, longValue);
+            }
+            break;
+        }
+
+        case 'F': { // float
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Float");
+                jmethodID floatValue = g_env->GetMethodID(cls, "floatValue", "()F");
+                *(jfloat*)fregs = g_env->CallFloatMethod(value, floatValue);
+            }
+            break;
+        }
+
+        case 'D': { // double
+            if (value) {
+                jclass cls = g_env->FindClass("java/lang/Double");
+                jmethodID doubleValue = g_env->GetMethodID(cls, "doubleValue", "()D");
+                *(jdouble*)fregs = g_env->CallDoubleMethod(value, doubleValue);
+            }
+            break;
+        }
+
+        case 'L':  // 对象
+        case '[': { // 数组
+            xregs[0] = (uint64_t)self->DecodeJObject(value);
+            break;
+        }
+
+        default:
+            LOGV("未知的返回类型: %c", returnType);
+            break;
+    }
 }

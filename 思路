@@ -23,17 +23,48 @@ class Hook  :目前有安装hook的函数，不需要卸载功能，后需要支
 
 
 接口：
-HookInterface.h   ：JNI使用的接口
-IHookCallback     ：Java使用的接口
+    virtual void After(JNIEnv *env, jobject thiz, jobjectArray args);
+    virtual void Before(JNIEnv *env, jobject thiz, jobjectArray args);
+    virtual void ChangeArgs();
+    virtual void ChangeValue();、
+    
 功能统一来自C层的Hook，且有 // Before: 修改参数 // After: 修改返回值
 
-需要把native-lib的逻辑拆解到各个类中并完善
-
-
-1.现在的native-lib中有很多参数转换的逻辑，如何封装到ArgsConverter类中？
 
 @Trampline.S 这个跳板只是将hook点跳转到汇编，保存现场后调callback，执行完后恢复现场。如果要实现after，
 我们需要在entry_point_from_quick_compiled_code_的结束ret的时候 进行Installhook，就可以修改返回值
 
+void IHook::Before(JNIEnv *env, jobject thiz, jobjectArray args) {
+    LOGV("IHook Before");
 
-CallBack进入有转换 执行Before或After后有转换 Before和After内也有转换，这四个转换在做什么，是否能封装成四个函数
+    MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
+
+    // 打印当前参数值
+    const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
+    LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
+         currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
+    env->ReleaseStringUTFChars(currentArgs.str, sz);
+
+    ChangeArgs();
+
+    LOGV("IHook Before END");
+    return;
+};
+
+void IHook::After(JNIEnv* env, jobject thiz, jobjectArray args) {
+    LOGV("IHook After");
+
+    MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
+
+    // 打印当前参数值
+    const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
+    LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
+         currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
+    env->ReleaseStringUTFChars(currentArgs.str, sz);
+
+    ChangeValue();
+
+    LOGV("IHook After END");
+    return;
+}我这么写的话 如果用户不重写Before和After 是不是可以直接重写    virtual void ChangeArgs();
+    virtual void ChangeValue();

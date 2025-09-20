@@ -6,34 +6,18 @@
 #include "ArgsConverter.h"
 
 class MyHook :public IHook{
-    void Before(JNIEnv *env, jobject thiz, jobjectArray args) override{
-        LOGV("MyHook Before");
+public:
+    void onBeforeMethod(JNIEnv* env,ArtMethod* pfnMethod, jobject thiz, jobjectArray& args) override  {
+        std::string sig = pfnMethod->PrettyMethod();
+        if (sig.find("foo(") != std::string::npos) {
+            LOGV("MyHook onBeforeMethod");
+        }
+    }
 
-        MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
-
-        // 打印当前参数值
-        const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
-        LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
-             currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
-        env->ReleaseStringUTFChars(currentArgs.str, sz);
-
-        LOGV("MyHook Before END");
-        return;
-    };
-
-    void After(JNIEnv* env, jobject thiz, jobjectArray args) override{
-        LOGV("MyHook After");
-
-        MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
-
-        // 打印当前参数值
-        const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
-        LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
-             currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
-        env->ReleaseStringUTFChars(currentArgs.str, sz);
-
-        LOGV("MyHook After END");
-        return;
+    jobject onAfterMethod(JNIEnv* env,ArtMethod* pfnMethod,jobject thiz, jobject returnValue) override {
+        // 修改返回值逻辑
+        LOGV("MyHook onAfterMethod");
+        return returnValue;
     }
 };
 
@@ -44,8 +28,11 @@ Java_com_kr_test_MainActivity_hook(JNIEnv *env, jobject thiz) {
 //    jclass cls_char = env->FindClass("java/lang/Character");
 //    env->GetMethodID()
 
+
     JNIEnvExt* extenv = static_cast<JNIEnvExt *>(env);
-    g_env = extenv;
+    IHook::InitEnv(env);
+    static MyHook myHook;  // 使用static确保生命周期
+    IHook::SetInstance(&myHook);
 
     //hook CFoo.foo
     jclass  cls = env->FindClass("com/kr/test/CFoo");
@@ -63,7 +50,7 @@ Java_com_kr_test_MainActivity_hook(JNIEnv *env, jobject thiz) {
     }
 
     //hook
-    if (!InstallHook(pfnfoo->ptr_sized_fields_.entry_point_from_quick_compiled_code_, (void*)CallBack)){
+    if (!myHook.InstallMethodHook(pfnfoo)){
         LOGV("失败hook foo函数 ");
     } else{
         LOGV("成功hook foo函数 ");

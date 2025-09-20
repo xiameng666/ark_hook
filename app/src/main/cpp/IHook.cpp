@@ -5,8 +5,8 @@
 #define PAGE_SZIE 0x1000
 #define PAGE_BASE(x) (void*)((uint64_t)(x) & (~0xFFF))
 
-
-JNIEnvExt *g_env = nullptr;
+IHook* IHook::g_hookInstance = nullptr;
+JNIEnvExt* IHook::env_ = nullptr;
 
 extern "C"{
     void Saved_OldCode();
@@ -14,6 +14,27 @@ extern "C"{
     void SmallTramplie();
     void Trimpline();
     void g_pfnCallback();
+}
+
+
+bool IHook::InstallMethodHook(ArtMethod* method)
+{
+    void* methodEntry = method->ptr_sized_fields_.entry_point_from_quick_compiled_code_;
+    if (!InstallHook(methodEntry, (void*)BeforeCallBack)){
+        return false;
+    }
+
+    //查找并安装After Hook
+    void* retAddr = FindRetInst(methodEntry);
+    if (retAddr) {
+        if (!InstallHook(retAddr, (void*)AfterCallBack)) {
+            LOGV("After Hook安装失败 !InstallHook");
+        }
+    }else{
+        LOGV("After Hook安装失败 !retAddr");
+    }
+
+    return true;
 }
 
 bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
@@ -47,7 +68,6 @@ bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
     return true;
 }
 
-
 bool IHook::UninstallHook(void* pDestAddr, void* pfnNewDstAddr)
 {
     return false;
@@ -77,41 +97,29 @@ void* IHook::FindRetInst(void* pDestAddr) {
     return nullptr;
 }
 
-void IHook::Before(JNIEnv *env, jobject thiz, jobjectArray args) {
-    LOGV("IHook Before");
+void IHook::AfterCallBack(ArtMethod* method,
+                           Object* thiz,
+                           Thread* self,
+                           char* shorty,
+                           uint32_t* args,
+                           uint64_t* xregs,
+                           double * fregs)
+{
+    std::string  name = method->PrettyMethod();
+    LOGV("AfterCallBack来了 %s", name.c_str());
 
-    MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
+    jobjectArray ja = nullptr;
+    jobject othiz = env_->vm->AddWeakGlobalRef(self, thiz);
+    jobject retValue = ArgsConverter::parseReturnValue(env_, shorty[0], xregs, fregs, self);
 
-    // 打印当前参数值
-    const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
-    LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
-         currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
-    env->ReleaseStringUTFChars(currentArgs.str, sz);
+    //用户重写
+    jobject newValue = g_hookInstance->onAfterMethod(env_, method, othiz, retValue);
 
-    ChangeArgs();
-
-    LOGV("IHook Before END");
-    return;
-};
-
-void IHook::After(JNIEnv* env, jobject thiz, jobjectArray args) {
-    LOGV("IHook After");
-
-    MethodArgs currentArgs = ArgsConverter::parseArgsFromJArray(env, args);
-
-    // 打印当前参数值
-    const char* sz = env->GetStringUTFChars(currentArgs.str, nullptr);
-    LOGV("After: ch-%c, f-%f, l-%d, d-%lf, str-%s, b-%d, n-%d",
-         currentArgs.ch, currentArgs.f, currentArgs.l, currentArgs.d, sz, currentArgs.b, currentArgs.n);
-    env->ReleaseStringUTFChars(currentArgs.str, sz);
-
-    ChangeValue();
-
-    LOGV("IHook After END");
-    return;
+    ArgsConverter::WriteReturnValue(env_, shorty[0], newValue, xregs, fregs, self);
 }
+
 //Bridge
-void IHook::CallBack(ArtMethod* method,
+void IHook::BeforeCallBack(ArtMethod* method,
                      Object* thiz,
                      Thread* self,
                      char* shorty,
@@ -120,17 +128,19 @@ void IHook::CallBack(ArtMethod* method,
                      double * fregs)
 {
     std::string  name = method->PrettyMethod();
-    LOGV("调用来了 %s", name.c_str());
+    LOGV("BeforeCallBack来了 %s", name.c_str());
+
+    jobjectArray ja = nullptr;
+    jobject othiz = env_->vm->AddWeakGlobalRef(self, thiz);
 
     //ART参数 → Java对象数组
-    jobjectArray ja = ArgsConverter::artArgs2JArray(method, thiz, self, shorty, args, xregs, fregs);
+    ja = ArgsConverter::artArgs2JArray(env_, method, thiz, self, shorty, args, xregs, fregs);
 
-    jobject othiz = g_env->vm->AddWeakGlobalRef(self, thiz);
-
-    Before(g_env, othiz, ja);
+    //用户重写
+    g_hookInstance->onBeforeMethod(env_, method, othiz, ja);
 
     //Java对象数组 → ART参数
-    ArgsConverter::JArray2ARTArgs(ja, shorty, args, xregs, fregs, self);
+    ArgsConverter::JArray2ARTArgs(env_, ja, shorty, args, xregs, fregs, self);
 
     return ;
 }

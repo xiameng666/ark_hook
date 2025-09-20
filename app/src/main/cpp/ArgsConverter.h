@@ -26,17 +26,24 @@ private:
 
 public:
     static jobjectArray
-    artArgs2JArray(ArtMethod *method, Object *thiz, Thread *self, char *shorty,
-                   uint32_t *args, uint64_t *xregs, double *fregs);
+    artArgs2JArray(JNIEnvExt *env, ArtMethod *method, Object *thiz, Thread *self,
+                   char *shorty, uint32_t *args, uint64_t *xregs, double *fregs);
 
     static void
-    JArray2ARTArgs(jobjectArray javaArgs, char *shorty, uint32_t *args, uint64_t *xregs,
-                   double *fregs, Thread *self);
+    JArray2ARTArgs(JNIEnvExt *g_env, jobjectArray javaArgs, char *shorty, uint32_t *args,
+                   uint64_t *xregs, double *fregs, Thread *self);
 
-    static MethodArgs parseArgsFromJArray(JNIEnv *env, jobjectArray args);
+/*    static MethodArgs parseArgsFromJArray(JNIEnv *env, jobjectArray args);
 
-    static void setArgs2JArray(JNIEnv *env, jobjectArray args, const MethodArgs &newArgs);
+    static void setArgs2JArray(JNIEnv *env, jobjectArray args, const MethodArgs &newArgs);*/
 
+    static jobject
+    parseReturnValue(JNIEnvExt *g_env, char returnType, uint64_t *xregs, double *fregs,
+                     Thread *self);
+
+    static void
+    WriteReturnValue(JNIEnvExt *g_env, char returnType, jobject value, uint64_t *xregs,
+                     double *fregs, Thread *self);
 };
 
 #endif //TEST_ARGSCONVERTER_H
