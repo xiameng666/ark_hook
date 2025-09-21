@@ -20,7 +20,7 @@ public class CFoo {
         //Boolean b0  = Boolean.valueOf(true);
         //b0.booleanValue()
 
-        Log.v("kr", "ch:"+ch+" f:"+f+" l:"+l+" d:"+d + " str:"+str + " b:"+b + " n:"+n);
+        Log.v("art", "ch:"+ch+" f:"+f+" l:"+l+" d:"+d + " str:"+str + " b:"+b + " n:"+n);
         return  0;
 
     }

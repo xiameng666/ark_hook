@@ -33,20 +33,9 @@ Trimpline:
     stp d4, d5, [x20], 0x10
     stp d6, d7, [x20], 0x10
 
-    // After Hook: 在数据区保存信息并修改返回地址
-    adr x20, g_afterhook_info
-    str x0, [x20]           // 保存ArtMethod*
-    str x1, [x20, #8]       // 保存this指针
-    str x30, [x20, #16]     // 直接保存x30(原始返回地址)到数据区
-    ldr x21, [x29, 0x18]    // 获取shorty
-    str x21, [x20, #24]     // 保存shorty指针
-
-    // 修改返回地址为After Hook跳板
-    adr x21, AfterHook_addr_addr
-    ldr x21, [x21]          // x21 = AfterHookTrampoline地址
-
+    // 暂时禁用After Hook，保持原始栈帧
     sub sp, sp, 0x10
-    stp x29, x21, [sp]      // 保存x29和修改后的返回地址(AfterHookTrampoline)
+    stp x29, x30, [sp]      // 保存原始的x29和x30，不修改返回地址
 
     //准备参数
 // void CallBack(ArtMethod* method,
@@ -165,8 +154,8 @@ AfterHook_addr_addr:
     g_pfnAfterCallback:
         .space 8, 0
 
-    g_xregs: .space 8*8, 0
-    g_fregs: .space 8*8, 0
+    g_xregs: .space 8*16, 0    // x0-x15
+    g_fregs: .space 8*8, 0     // d0-d7
 
     g_afterhook_info:
         .space 8, 0    // ArtMethod*

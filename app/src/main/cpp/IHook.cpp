@@ -21,11 +21,10 @@ extern "C"{
     void AfterHook_addr();
 }
 
-
-bool IHook::InstallMethodHook(ArtMethod* method)
+bool IHook::InstallMethodHook(ArtMethod* method, void* beforeCallback, void* afterCallback)
 {
     LOGV("[TAG] 开始安装方法Hook");
-    
+
     LOGV("[TAG] 获取方法入口点");
     void* methodEntry = method->ptr_sized_fields_.entry_point_from_quick_compiled_code_;
     if (methodEntry == nullptr) {
@@ -34,31 +33,22 @@ bool IHook::InstallMethodHook(ArtMethod* method)
     }
     LOGV("[TAG] 方法入口点: %p", methodEntry);
 
-    LOGV("[TAG] 安装Before Hook");
-    if (!InstallHook(methodEntry, (void*)BeforeCallBack)){
-        LOGV("[TAG] 错误：Before Hook安装失败");
+    // 如果用户没有提供回调，使用默认回调
+    void* actualBeforeCallback = beforeCallback ? beforeCallback : (void*)BeforeCallBack;
+    void* actualAfterCallback = afterCallback;  // After回调保持可选
+
+    LOGV("[TAG] 使用回调 - Before: %p, After: %p", actualBeforeCallback, actualAfterCallback);
+
+    // 安装Hook（支持Before和After）
+    if (!InstallHook(methodEntry, actualBeforeCallback, actualAfterCallback)){
+        LOGV("[TAG] 错误：Hook安装失败");
         return false;
     }
-    LOGV("[TAG] Before Hook安装成功");
-//
-//    LOGV("[TAG] 查找返回指令地址");
-//    //查找并安装After Hook
-//    void* retAddr = FindRetInst(methodEntry);
-//    if (retAddr) {
-//        LOGV("[TAG] 找到返回指令地址: %p", retAddr);
-//        LOGV("[TAG] 安装After Hook");
-//        if (!InstallHook(retAddr, (void*)AfterCallBack)) {
-//            LOGV("[TAG] 错误：After Hook安装失败");
-//        } else {
-//            LOGV("[TAG] After Hook安装成功");
-//        }
-//    }else{
-//        LOGV("[TAG] 错误：找不到返回指令地址");
-//    }
+    LOGV("[TAG] Hook安装成功");
     return true;
 }
 
-bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
+bool IHook::InstallHook(void* pDestAddr, void* beforeCallback, void* afterCallback)
 {
     // 打印所有汇编变量的地址
     LOGV("[TAG] ========== 汇编变量地址信息 ==========");
@@ -98,15 +88,25 @@ bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
     memcpy((void*)Saved_OldCode, (void*)pDestAddr, SMALL_TRIMPLINE);
     auto pRetAddr = (char*)pDestAddr+SMALL_TRIMPLINE;
     memcpy((void*)RetDst_addr, (void*)&pRetAddr, sizeof(pDestAddr));
-    memcpy((void*)g_pfnCallback, (void*)&pfnCallback, sizeof(pfnCallback));
 
-    // 初始化After Hook回调函数地址
-    void* pAfterCallback = (void*)AfterCallBack;
-    memcpy((void*)g_pfnAfterCallback, (void*)&pAfterCallback, sizeof(pAfterCallback));
+    // 设置Before回调
+    if (beforeCallback != nullptr) {
+        memcpy((void*)g_pfnCallback, (void*)&beforeCallback, sizeof(beforeCallback));
+        LOGV("[TAG] Before回调设置完成");
+    }
 
-    // 初始化After Hook跳板地址
-    void* pAfterHookTrampoline = (void*)AfterHookTrampoline;
-    memcpy((void*)AfterHook_addr, (void*)&pAfterHookTrampoline, sizeof(pAfterHookTrampoline));
+    // 设置After回调（如果提供）
+    if (afterCallback != nullptr) {
+        memcpy((void*)g_pfnAfterCallback, (void*)&afterCallback, sizeof(afterCallback));
+
+        // 初始化After Hook跳板地址
+        void* pAfterHookTrampoline = (void*)AfterHookTrampoline;
+        memcpy((void*)AfterHook_addr, (void*)&pAfterHookTrampoline, sizeof(pAfterHookTrampoline));
+        LOGV("[TAG] After回调设置完成");
+    } else {
+        LOGV("[TAG] 跳过After Hook设置");
+    }
+
     LOGV("[TAG] 原函数指令保存完成");
 
     LOGV("[TAG] 修改原函数头，跳转到跳板");
@@ -166,15 +166,23 @@ void IHook::AfterCallBack(ArtMethod* method,
                            uint64_t* xregs,
                            double * fregs)
 {
-    std::string  name = method->PrettyMethod();
+    // 立即保存所有关键参数，避免被后续函数调用破坏
+    ArtMethod* original_method = method;
+    Object* original_thiz = thiz;
+    Thread* original_self = self;
+    char* original_shorty = shorty;
+    uint64_t* original_xregs = xregs;
+    double* original_fregs = fregs;
+
+    std::string  name = original_method->PrettyMethod();
     LOGV("[TAG] AfterCallBack来了 %s", name.c_str());
 
     LOGV("[TAG] 处理AfterCallBack参数");
 
     LOGV("[TAG] 添加弱全局引用");
     jobject othiz = nullptr;
-    if (thiz != nullptr) {
-        othiz = env_->vm->AddWeakGlobalRef(self, thiz);
+    if (original_thiz != nullptr) {
+        othiz = env_->vm->AddWeakGlobalRef(original_self, original_thiz);
         if (othiz == nullptr) {
             LOGV("[TAG] 错误：添加弱全局引用失败");
             return;
@@ -184,23 +192,23 @@ void IHook::AfterCallBack(ArtMethod* method,
     LOGV("[TAG] 解析返回值");
     // 注意：这里的xregs和fregs现在包含的是返回值，不是参数
     // 需要根据方法的返回类型来解析返回值
-    char returnType = shorty[0]; // shorty第一个字符是返回类型
+    char returnType = original_shorty[0]; // shorty第一个字符是返回类型
 
-    LOGV("[TAG] 返回类型: %c, xregs[0]: 0x%lx, xregs[1]: 0x%lx", returnType, xregs[0], xregs[1]);
-    LOGV("[TAG] xregs地址: %p, fregs地址: %p", xregs, fregs);
+    LOGV("[TAG] 返回类型: %c, xregs[0]: 0x%lx, xregs[1]: 0x%lx", returnType, original_xregs[0], original_xregs[1]);
+    LOGV("[TAG] xregs地址: %p, fregs地址: %p", original_xregs, original_fregs);
 
-    jobject retValue = ArgsConverter::parseReturnValue(env_, returnType, xregs, fregs, self);
+    jobject retValue = ArgsConverter::parseReturnValue(env_, returnType, original_xregs, original_fregs, original_self);
     if (retValue == nullptr && returnType != 'V') { // V表示void返回类型
         LOGV("[TAG] 警告：返回值解析失败，返回类型: %c", returnType);
     }
 
     LOGV("[TAG] 调用用户重写的onAfterMethod");
     //用户重写
-    jobject newValue = g_hookInstance->onAfterMethod(env_, method, othiz, retValue);
+    jobject newValue = g_hookInstance->onAfterMethod(env_, original_method, othiz, retValue);
 
     LOGV("[TAG] 写入新的返回值");
     if (newValue != nullptr) {
-        ArgsConverter::WriteReturnValue(env_, returnType, newValue, xregs, fregs, self);
+        ArgsConverter::WriteReturnValue(env_, returnType, newValue, original_xregs, original_fregs, original_self);
     }
 
     LOGV("[TAG] AfterCallBack处理完成");

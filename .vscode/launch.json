@@ -2,22 +2,31 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Native (Terminal)",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceFolder}/app/build/outputs/apk/debug/app-debug.apk",
-            "args": [],
-            "cwd": "${workspaceFolder}",
-            "MIMode": "lldb",
-            "miDebuggerPath": "lldb",
+            "type": "gdb",
+            "request": "attach",
+            "name": "Attach to PID",
+            "target": "[PID]",
+            "cwd": "${workspaceRoot}",
+            "valuesFormatting": "parseText"
+        },
+        {
+            "name": "Attach Android Process",
+            "type": "gdb",
+            "request": "attach",
+            "pid": "${input:processId}",
             "console": "integratedTerminal",
-            "setupCommands": [
-                {
-                    "description": "Connect to Android device",
-                    "text": "platform select remote-android",
-                    "ignoreFailures": true
-                }
+            "initCommands": [
+                "platform select remote-android",
+                "platform connect connect://localhost:1234"
             ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "processId",
+            "description": "Enter Android process ID to attach",
+            "default": "",
+            "type": "promptString"
         }
     ]
 }

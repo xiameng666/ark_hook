@@ -24,15 +24,12 @@ public:
         g_hookInstance = instance;
     }
 
-    bool InstallHook(void* pDestAddr, void* pfnCallback);
+    // 合并后的接口：传入方法和回调函数（都可选）
+    bool InstallMethodHook(ArtMethod* method, void* beforeCallback = nullptr, void* afterCallback = nullptr);
 
     bool UninstallHook(void* pDestAddr, void* pfnNewDstAddr);
 
     void* FindRetInst(void* pDestAddr);
-
-//    virtual void After(JNIEnv *env, jobject thiz, jobjectArray args);
-//
-//    virtual void Before(JNIEnv *env, jobject thiz, jobjectArray args);
 
     virtual void onBeforeMethod(JNIEnv* env,ArtMethod* pfnMethod, jobject thiz, jobjectArray& args) = 0;
     virtual jobject onAfterMethod(JNIEnv* env,ArtMethod* pfnMethod,jobject thiz, jobject returnValue) = 0;
@@ -43,5 +40,7 @@ public:
     static void BeforeCallBack(ArtMethod *method, Object *thiz, Thread *self, char *shorty, uint32_t *args,
                         uint64_t *xregs, double *fregs);
 
-    bool InstallMethodHook(ArtMethod *method);
+private:
+    // 内部使用的安装函数
+    bool InstallHook(void* pDestAddr, void* beforeCallback, void* afterCallback);
 };
