@@ -11,9 +11,14 @@ JNIEnvExt* IHook::env_ = nullptr;
 extern "C"{
     void Saved_OldCode();
     void RetDst_addr();
+
     void SmallTramplie();
     void Trimpline();
     void g_pfnCallback();
+
+    void AfterHookTrampoline();
+    void g_pfnAfterCallback();
+    void AfterHook_addr();
 }
 
 
@@ -35,23 +40,21 @@ bool IHook::InstallMethodHook(ArtMethod* method)
         return false;
     }
     LOGV("[TAG] Before Hook安装成功");
-
-    LOGV("[TAG] 查找返回指令地址");
-    //查找并安装After Hook
-    void* retAddr = FindRetInst(methodEntry);
-    if (retAddr) {
-        LOGV("[TAG] 找到返回指令地址: %p", retAddr);
-        LOGV("[TAG] 安装After Hook");
-        if (!InstallHook(retAddr, (void*)AfterCallBack)) {
-            LOGV("[TAG] 错误：After Hook安装失败");
-        } else {
-            LOGV("[TAG] After Hook安装成功");
-        }
-    }else{
-        LOGV("[TAG] 错误：找不到返回指令地址");
-    }
-
-    LOGV("[TAG] 方法Hook安装完成");
+//
+//    LOGV("[TAG] 查找返回指令地址");
+//    //查找并安装After Hook
+//    void* retAddr = FindRetInst(methodEntry);
+//    if (retAddr) {
+//        LOGV("[TAG] 找到返回指令地址: %p", retAddr);
+//        LOGV("[TAG] 安装After Hook");
+//        if (!InstallHook(retAddr, (void*)AfterCallBack)) {
+//            LOGV("[TAG] 错误：After Hook安装失败");
+//        } else {
+//            LOGV("[TAG] After Hook安装成功");
+//        }
+//    }else{
+//        LOGV("[TAG] 错误：找不到返回指令地址");
+//    }
     return true;
 }
 
@@ -86,6 +89,14 @@ bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
     auto pRetAddr = (char*)pDestAddr+SMALL_TRIMPLINE;
     memcpy((void*)RetDst_addr, (void*)&pRetAddr, sizeof(pDestAddr));
     memcpy((void*)g_pfnCallback, (void*)&pfnCallback, sizeof(pfnCallback));
+
+    // 初始化After Hook回调函数地址
+    void* pAfterCallback = (void*)AfterCallBack;
+    memcpy((void*)g_pfnAfterCallback, (void*)&pAfterCallback, sizeof(pAfterCallback));
+
+    // 初始化After Hook跳板地址
+    void* pAfterHookTrampoline = (void*)AfterHookTrampoline;
+    memcpy((void*)AfterHook_addr, (void*)&pAfterHookTrampoline, sizeof(pAfterHookTrampoline));
     LOGV("[TAG] 原函数指令保存完成");
 
     LOGV("[TAG] 修改原函数头，跳转到跳板");

@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Native (Terminal)",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/app/build/outputs/apk/debug/app-debug.apk",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "MIMode": "lldb",
+            "miDebuggerPath": "lldb",
+            "console": "integratedTerminal",
+            "setupCommands": [
+                {
+                    "description": "Connect to Android device",
+                    "text": "platform select remote-android",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

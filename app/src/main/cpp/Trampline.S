@@ -4,7 +4,11 @@
 .global RetDst_addr
 .global SmallTramplie
 .global Trimpline
+
 .global g_pfnCallback
+.global g_pfnAfterCallback
+.global AfterHookTrampoline
+.global AfterHook_addr
 
 .text
 Trimpline:
@@ -24,7 +28,16 @@ Trimpline:
     sub sp, sp, 0x10
     stp x29, x30, [sp]
 
-    //brk 0
+    // After Hook: 在数据区保存信息并修改返回地址
+    adr x20, g_afterhook_info
+    str x0, [x20]           // 保存ArtMethod*
+    str x1, [x20, #8]       // 保存this指针
+    str x30, [x20, #16]     // 直接保存x30(原始返回地址)到数据区
+
+    // 修改返回地址为After Hook跳板
+    adr x30, AfterHook_addr_addr
+    ldr x30, [x30]
+    // 现在x30指向AfterHookTrampoline，函数返回时会跳转到那里
 
     //准备参数
 // void CallBack(ArtMethod* method,
@@ -45,10 +58,9 @@ Trimpline:
 
     //调用C函数
     ldr x17, g_pfnCallback_addr
-    blr x17 
+    blr x17
 
-    //brk 0
-    ldp x29, x30, [sp]
+    ldp x29, x30, [sp]  // 这里恢复的x30已经被修改为AfterHookTrampoline地址
     add sp, sp, 0x10
 
     //恢复所有的寄存器
@@ -64,7 +76,6 @@ Trimpline:
     ldp d4, d5, [x20], 0x10
     ldp d6, d7, [x20], 0x10
 
-
 Saved_OldCode: // 保存原函数的指令
     .space 0x10, 0
 
@@ -72,14 +83,65 @@ SmallTramplie:
 Trampline_BrDst:
     ldr x17, RetDst_addr_addr
     br x17
-RetDst_addr: 
-RetDst_addr_addr: 
+RetDst_addr:
+RetDst_addr_addr:
+    .space 8, 0
+
+AfterHookTrampoline:
+
+    // 保存返回值到数据区
+    adr x20, g_ret_xregs
+    stp x0, x1, [x20]        // 保存 x0, x1
+    stp x2, x3, [x20, #16]   // 保存 x2, x3
+
+    adr x20, g_ret_fregs
+    stp d0, d1, [x20]        // 保存 d0, d1
+    stp d2, d3, [x20, #16]   // 保存 d2, d3
+
+    //调用After回调
+
+    ldr x17, g_pfnAfterCallback_addr
+    blr x17
+
+    //恢复返回值寄存器
+    ldp x29, x30, [sp]
+    add sp, sp, #16
+
+    adr x20, g_ret_fregs
+    ldp d0, d1, [x20]
+    ldp d2, d3, [x20, #16]
+
+    adr x20, g_ret_xregs
+    ldp x0, x1, [x20]
+    ldp x2, x3, [x20, #16]
+
+    //从数据区恢复原始返回地址
+    adr x20, g_afterhook_info
+    ldr x30, [x20, #16]     // 恢复原始返回地址
+    ret
+
+
+
+AfterHook_addr:
+AfterHook_addr_addr:
     .space 8, 0
 
 .data
     g_pfnCallback_addr:
-    g_pfnCallback: 
+    g_pfnCallback:
         .space 8, 0
+
+    g_pfnAfterCallback_addr:
+    g_pfnAfterCallback:
+        .space 8, 0
+
     g_xregs: .space 8*8, 0
     g_fregs: .space 8*8, 0
 
+    g_afterhook_info:
+        .space 8, 0    // ArtMethod*
+        .space 8, 0    // this指针
+        .space 8, 0    // 原始返回地址
+
+    g_ret_xregs: .space 8*4, 0    // x0-x3
+    g_ret_fregs: .space 8*4, 0    // d0-d3
