@@ -60,7 +60,17 @@ bool IHook::InstallMethodHook(ArtMethod* method)
 
 bool IHook::InstallHook(void* pDestAddr, void* pfnCallback)
 {
-    LOGV("[TAG] 开始安装Hook，目标地址: %p，回调地址: %p", pDestAddr, pfnCallback);
+    // 打印所有汇编变量的地址
+    LOGV("[TAG] ========== 汇编变量地址信息 ==========");
+    LOGV("[TAG] Saved_OldCode 地址: %p", (void*)Saved_OldCode);
+    LOGV("[TAG] RetDst_addr 地址: %p", (void*)RetDst_addr);
+    LOGV("[TAG] SmallTramplie 地址: %p", (void*)SmallTramplie);
+    LOGV("[TAG] Trimpline 地址: %p", (void*)Trimpline);
+    LOGV("[TAG] g_pfnCallback 地址: %p", (void*)g_pfnCallback);
+    LOGV("[TAG] AfterHookTrampoline 地址: %p", (void*)AfterHookTrampoline);
+    LOGV("[TAG] g_pfnAfterCallback 地址: %p", (void*)g_pfnAfterCallback);
+    LOGV("[TAG] AfterHook_addr 地址: %p", (void*)AfterHook_addr);
+    LOGV("[TAG] =====================================");
 
     LOGV("[TAG] 修改目标函数内存属性");
     //0. 修改内存属性
@@ -160,19 +170,28 @@ void IHook::AfterCallBack(ArtMethod* method,
     LOGV("[TAG] AfterCallBack来了 %s", name.c_str());
 
     LOGV("[TAG] 处理AfterCallBack参数");
-    jobjectArray ja = nullptr;
-    
+
     LOGV("[TAG] 添加弱全局引用");
-    jobject othiz = env_->vm->AddWeakGlobalRef(self, thiz);
-    if (othiz == nullptr) {
-        LOGV("[TAG] 错误：添加弱全局引用失败");
-        return;
+    jobject othiz = nullptr;
+    if (thiz != nullptr) {
+        othiz = env_->vm->AddWeakGlobalRef(self, thiz);
+        if (othiz == nullptr) {
+            LOGV("[TAG] 错误：添加弱全局引用失败");
+            return;
+        }
     }
 
     LOGV("[TAG] 解析返回值");
-    jobject retValue = ArgsConverter::parseReturnValue(env_, shorty[0], xregs, fregs, self);
-    if (retValue == nullptr) {
-        LOGV("[TAG] 警告：返回值解析失败");
+    // 注意：这里的xregs和fregs现在包含的是返回值，不是参数
+    // 需要根据方法的返回类型来解析返回值
+    char returnType = shorty[0]; // shorty第一个字符是返回类型
+
+    LOGV("[TAG] 返回类型: %c, xregs[0]: 0x%lx, xregs[1]: 0x%lx", returnType, xregs[0], xregs[1]);
+    LOGV("[TAG] xregs地址: %p, fregs地址: %p", xregs, fregs);
+
+    jobject retValue = ArgsConverter::parseReturnValue(env_, returnType, xregs, fregs, self);
+    if (retValue == nullptr && returnType != 'V') { // V表示void返回类型
+        LOGV("[TAG] 警告：返回值解析失败，返回类型: %c", returnType);
     }
 
     LOGV("[TAG] 调用用户重写的onAfterMethod");
@@ -180,8 +199,10 @@ void IHook::AfterCallBack(ArtMethod* method,
     jobject newValue = g_hookInstance->onAfterMethod(env_, method, othiz, retValue);
 
     LOGV("[TAG] 写入新的返回值");
-    ArgsConverter::WriteReturnValue(env_, shorty[0], newValue, xregs, fregs, self);
-    
+    if (newValue != nullptr) {
+        ArgsConverter::WriteReturnValue(env_, returnType, newValue, xregs, fregs, self);
+    }
+
     LOGV("[TAG] AfterCallBack处理完成");
 }
 

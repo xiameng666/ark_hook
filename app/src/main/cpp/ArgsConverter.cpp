@@ -407,6 +407,13 @@ void ArgsConverter::setArgs2JArray(JNIEnv* env, jobjectArray args, const MethodA
 jobject
 ArgsConverter::parseReturnValue(JNIEnvExt *g_env, char returnType, uint64_t *xregs, double *fregs,
                                 Thread *self) {
+    LOGV("[TAG] parseReturnValue开始: returnType=%c, xregs=%p, xregs[0]=0x%lx", returnType, xregs, xregs ? xregs[0] : 0);
+
+    if (g_env == nullptr || xregs == nullptr) {
+        LOGV("[TAG] 错误：g_env或xregs为空指针");
+        return nullptr;
+    }
+
     switch(returnType) {
         case 'V':  // void
             return nullptr;

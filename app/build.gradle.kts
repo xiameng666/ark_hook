@@ -26,11 +26,38 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 abiFilters("arm64-v8a")
+
             }
         }
     }
 
     buildTypes {
+
+        debug {
+            isDebuggable = true
+            isJniDebuggable = true  // 启用 JNI 调试
+            isMinifyEnabled = false
+            isShrinkResources = false
+
+            // 保留native调试符号
+            packagingOptions {
+                jniLibs {
+                    keepDebugSymbols += "**/*.so"
+                }
+                doNotStrip += "**/*.so"
+            }
+
+            // 添加调试专用的 Native 编译选项
+            externalNativeBuild {
+                cmake {
+                    arguments += listOf(
+                        "-DCMAKE_BUILD_TYPE=Debug",
+                        "-DANDROID_ALLOW_UNDEFINED_SYMBOLS=TRUE"
+                    )
+                }
+            }
+        }
+
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -39,6 +66,10 @@ android {
             )
             signingConfig = signingConfigs.getByName("test")
         }
+
+
+
+
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
